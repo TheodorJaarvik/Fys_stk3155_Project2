@@ -1,144 +1,164 @@
 import numpy as np
-from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.datasets import load_breast_cancer
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import accuracy_score
 import matplotlib.pyplot as plt
 
-# Use the same generate_data function from Part a"  
-
-def generate_data(n_samples=100):
-    np.random.seed(0)
-    x = np.random.rand(n_samples)
-    y = 2 + 3*x + 4*x**2 + 0.1 * np.random.randn(n_samples)  
-    return x, y
-
-# x, y = generate_data()
-# X = np.c_[np.ones(x.shape), x, x**2]
-# y = y.reshape(-1, 1)
-
-def initialize_network(n_inputs, layers):
-    np.random.seed(0)
-    network = {}
-    input_size = n_inputs
-
-    i = 0
-
-    for layer in layers:
-        
-        output_size = layer
-        network[f"W{i}"] = np.random.randn(input_size, output_size) * 0.1
-        network[f"b{i}"] = np.zeros((1, output_size))  
-
-        input_size = output_size
-
-        i += 1
-    return network
-
-
-
+# Activation functions and their derivatives
 def sigmoid(z):
     return 1 / (1 + np.exp(-z))
 
+def sigmoid_derivative(a):
+    return a * (1 - a)
 
-def sigmoid_derivative(z):
-    return sigmoid(z) * (1 - sigmoid(z))
-
-def ReLU(z):
+def relu(z):
     return np.maximum(0, z)
 
-def RelU_derivative(z):
+def relu_derivative(z):
     return np.where(z > 0, 1, 0)
 
-def mse_loss(y_true, y_pred):
-    return np.mean((y_true - y_pred) ** 2)
+# Binary cross-entropy loss function
+def binary_cross_entropy_loss(predictions, targets):
+    epsilon = 1e-15  # To prevent log(0)
+    predictions = np.clip(predictions, epsilon, 1 - epsilon)
+    return -np.mean(targets * np.log(predictions) + (1 - targets) * np.log(1 - predictions))
 
-def forward_propagation(X, network, activation_funcs):
-    activations = {"A0": X}
-    for layer in range(len(network) // 2):
-        W = network[f"W{layer}"]
-        b = network[f"b{layer}"]
-        Z = activations[f"A{layer}"] @ W + b
-        if layer < len(network) // 2 - 1:
-            activations[f"A{layer + 1}"] = activation_funcs[layer](Z) 
-        else:
-            activations[f"A{layer + 1}"] = Z  # Output layer (linear)
-    return activations
+# Accuracy function
+def compute_accuracy(predictions, targets):
+    pred_labels = (predictions >= 0.5).astype(int)
+    return np.mean(pred_labels == targets)
 
-def back_propagation(y, activations, network, a_func_derivatives):
-    gradients = {}
-    n_layers = len(network) // 2
-    y_pred = activations[f"A{n_layers}"]
-    
+# Neural Network class
+class NeuralNetwork:
+    def __init__(self, layer_sizes, activations):
+        self.layer_sizes = layer_sizes  # List of layer sizes [input_size, hidden1_size, ..., output_size]
+        self.activations = activations  # List of activation functions per layer
+        self.weights = []  # Weights for each layer
+        self.biases = []   # Biases for each layer
+        self.initialize_weights()
 
-    dA = y_pred - y
-    for layer in reversed(range(n_layers)):
-        dZ = dA if layer == n_layers - 1 else dA * a_func_derivatives[layer](activations[f"A{layer + 1}"])
-        dW = activations[f"A{layer}"].T @ dZ / y.shape[0]
-        db = np.sum(dZ, axis=0, keepdims=True) / y.shape[0]
-        gradients[f"dW{layer}"] = dW
-        gradients[f"db{layer}"] = db
-        if layer > 0:
-            dA = dZ @ network[f"W{layer}"].T
-    return gradients
+    def initialize_weights(self):
+        # Initialize weights and biases for each layer
+        np.random.seed(0)  # For reproducibility
+        for i in range(len(self.layer_sizes) - 1):
+            input_dim = self.layer_sizes[i]
+            output_dim = self.layer_sizes[i + 1]
+            if self.activations[i] == 'sigmoid':
+                # Xavier Initialization
+                limit = np.sqrt(6 / (input_dim + output_dim))
+                W = np.random.uniform(-limit, limit, (input_dim, output_dim))
+            elif self.activations[i] == 'relu':
+                # He Initialization
+                W = np.random.randn(input_dim, output_dim) * np.sqrt(2 / input_dim)
+            else:
+                W = np.random.randn(input_dim, output_dim) * 0.01  # Default small weights
+            b = np.zeros((1, output_dim))
+            self.weights.append(W)
+            self.biases.append(b)
 
-def update_parameters(network, gradients, learning_rate):
-    for layer in range(len(network) // 2):
-        network[f"W{layer}"] -= learning_rate * gradients[f"dW{layer}"]
-        network[f"b{layer}"] -= learning_rate * gradients[f"db{layer}"]
-    return network
+    def forward(self, X):
+        # Forward pass through the network
+        self.z_values = []  # Linear combinations (Z) for each layer
+        self.a_values = [X]  # Activations for each layer (A_0 = X)
 
-def train_neural_network(X, y, network, activation_funcs , a_func_derivatives, n_epochs=1000, learning_rate=0.01):
-    losses = []
-    for epoch in range(n_epochs):
+        for i in range(len(self.weights)):
+            Z = np.dot(self.a_values[-1], self.weights[i]) + self.biases[i]
+            self.z_values.append(Z)
 
-        activations = forward_propagation(X, network, activation_funcs)
-        y_pred = activations[f"A{len(network) // 2}"]
-        
+            # Apply activation function
+            if self.activations[i] == 'sigmoid':
+                A = sigmoid(Z)
+            elif self.activations[i] == 'relu':
+                A = relu(Z)
+            else:
+                raise ValueError(f"Unsupported activation function: {self.activations[i]}")
 
-        loss = mse_loss(y, y_pred)
-        losses.append(loss)
-        
+            self.a_values.append(A)
 
-        gradients = back_propagation(y, activations, network, a_func_derivatives)
-        
+        return self.a_values[-1]  # Return the final output layer (A_L)
 
-        network = update_parameters(network, gradients, learning_rate)
-        
+    def backward(self, y, learning_rate):
+        # Backward pass (compute gradients and update weights)
+        m = y.shape[0]
+        L = len(self.weights)
+        dA = -(np.divide(y, self.a_values[-1]) - np.divide(1 - y, 1 - self.a_values[-1]))
 
-        if epoch % 100 == 0:
-            print(f"Epoch {epoch}, Loss: {loss:.4f}")
-    return network, losses
+        for i in reversed(range(L)):
+            # Compute derivative of activation function
+            if self.activations[i] == 'sigmoid':
+                dZ = dA * sigmoid_derivative(self.a_values[i + 1])
+            elif self.activations[i] == 'relu':
+                dZ = dA * relu_derivative(self.z_values[i])
+            else:
+                raise ValueError(f"Unsupported activation function: {self.activations[i]}")
+
+            dW = np.dot(self.a_values[i].T, dZ) / m
+            db = np.sum(dZ, axis=0, keepdims=True) / m
+
+            if i > 0:
+                dA = np.dot(dZ, self.weights[i].T)
+
+            # Update weights and biases
+            self.weights[i] -= learning_rate * dW
+            self.biases[i] -= learning_rate * db
+
+    def train(self, X, y, epochs, learning_rate):
+        # Train the neural network using gradient descent
+        losses = []
+        for epoch in range(epochs):
+            # Forward pass
+            predictions = self.forward(X)
+
+            # Compute loss
+            loss = binary_cross_entropy_loss(predictions, y)
+            losses.append(loss)
+
+            # Backward pass and update weights
+            self.backward(y, learning_rate)
+
+            # Optionally print loss and accuracy
+            if epoch % 100 == 0 or epoch == epochs - 1:
+                accuracy = compute_accuracy(predictions, y)
+                print(f'Epoch {epoch}, Loss: {loss:.4f}, Accuracy: {accuracy:.4f}')
+
+        return losses
+
+    def predict(self, X):
+        # Make predictions using the trained network
+        predictions = self.forward(X)
+        return (predictions >= 0.5).astype(int)
 
 
-def accuracy_score(y_true, y_pred):
-   
-    correct_predictions = (y_true == y_pred).sum()
-    total_predictions = len(y_true)
-    accuracy = correct_predictions / total_predictions
-    return accuracy
 
+# Data Preparation
+data = load_breast_cancer()
+inputs = data.data
+targets = data.target.reshape(-1, 1)  # Ensure targets are column vectors
 
-data = load_breast_cancer().data
-targets = load_breast_cancer().target
+# Standardize the inputs
+scaler = StandardScaler()
+inputs = scaler.fit_transform(inputs)
 
-input_size = data.shape[1]
+# Network Architecture
+input_size = inputs.shape[1]
 output_size = 1
+layer_sizes = [input_size, 16, 8, output_size]
+activations = ['relu', 'relu', 'sigmoid']
 
-
-layers_sizes = [7, 3, output_size]
-network = initialize_network(input_size, layers_sizes)
-
-
-
-n_epochs = 1500
+# Create and Train the Neural Network
+nn = NeuralNetwork(layer_sizes, activations)
+epochs = 1000
 learning_rate = 0.01
+losses = nn.train(inputs, targets, epochs, learning_rate)
 
-activation_funcs = [sigmoid, ReLU]
-a_funcs_derivatives = [sigmoid_derivative, RelU_derivative]
+# Evaluate the Network
+predictions = nn.forward(inputs)
+accuracy = compute_accuracy(predictions, targets)
+print(f'Final Accuracy on the dataset: {accuracy:.4f}')
 
-# Train the model
-network, losses = train_neural_network(X, y, network, activation_funcs, a_funcs_derivatives, n_epochs, learning_rate)
-
-# Final prediction
-final_activations = forward_propagation(X, network, activation_funcs)
-y_pred = final_activations[f"A{len(network) // 2}"]
-
+# Plot Training Loss
+plt.plot(losses)
+plt.xlabel('Epoch')
+plt.ylabel('Binary Cross-Entropy Loss')
+plt.title('Training Loss Over Time')
+plt.show()
