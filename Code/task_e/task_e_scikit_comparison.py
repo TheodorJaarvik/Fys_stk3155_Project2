@@ -4,6 +4,7 @@ from sklearn.datasets import load_breast_cancer
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
+from sklearn.linear_model import LogisticRegression
 
 # Load the Wisconsin Breast Cancer dataset
 data = load_breast_cancer()
@@ -48,11 +49,11 @@ def compute_gradient(X, y, weights, lambda_reg):
     return gradient
 
 # Logistic Regression using SGD
-def logistic_regression_sgd(X, y, learning_rate=0.01, n_epochs=1000, lambda_reg=0.01, batch_size=32):
+def logistic_regression_sgd(X, y, learning_rate=0.001, n_epochs=500, lambda_reg=0.01, batch_size=32):
     m, n = X.shape
     weights = np.zeros((n, 1))
     losses = []
-    accuracies = []
+    test_accuracies = []
 
     for epoch in range(n_epochs):
         # Shuffle data at the start of each epoch
@@ -69,75 +70,58 @@ def logistic_regression_sgd(X, y, learning_rate=0.01, n_epochs=1000, lambda_reg=
             gradient = compute_gradient(X_batch, y_batch, weights, lambda_reg)
             weights -= learning_rate * gradient
 
-        # Compute loss and accuracy for monitoring
+        # Compute loss for monitoring
         loss = compute_cost(X, y, weights, lambda_reg)
         losses.append(loss)
 
-        # Predict on the training set
-        y_pred_train = sigmoid(X @ weights) >= 0.5
-        accuracy = accuracy_score(y, y_pred_train)
-        accuracies.append(accuracy)
+        # Predict on the test set and calculate accuracy
+        y_test_pred = sigmoid(X_test @ weights) >= 0.5
+        test_accuracy = accuracy_score(y_test, y_test_pred)
+        test_accuracies.append(test_accuracy)
 
         if epoch % 100 == 0:
-            print(
-                f"Epoch {epoch}, Loss: {loss:.4f}, Training Accuracy: {accuracy:.4f}"
-            )
+            print(f"Epoch {epoch}, Loss: {loss:.4f}, Test Accuracy: {test_accuracy:.4f}")
 
-    return weights, losses, accuracies
+    return weights, losses, test_accuracies
 
-# Training the logistic regression model
-learning_rates = [0.001, 0.01, 0.1, 1]
+# Parameters
+learning_rate = 0.001
 lambda_reg = 0.01  # Regularization strength
-test_accuracies = []
+n_epochs = 500
 
-for lr in learning_rates:
-    print(f"\nTraining with learning rate: {lr}")
-    weights, losses, accuracies = logistic_regression_sgd(
-        X_train, y_train, learning_rate=lr, n_epochs=1000, lambda_reg=lambda_reg, batch_size=32
-    )
+# Train logistic regression using SGD
+weights, losses, test_accuracies_manual = logistic_regression_sgd(
+    X_train, y_train, learning_rate=learning_rate, n_epochs=n_epochs, lambda_reg=lambda_reg, batch_size=32
+)
 
-    # Predict on test set
-    y_test_pred = sigmoid(X_test @ weights) >= 0.5
-    test_accuracy = accuracy_score(y_test, y_test_pred)
-    test_accuracies.append(test_accuracy)
-    print(f"Test Accuracy with learning rate {lr}: {test_accuracy:.4f}")
+# Compare with Scikit-Learn's Logistic Regression
+clf = LogisticRegression(penalty='l2', C=1/lambda_reg, max_iter=n_epochs)
+clf.fit(X_train[:, 1:], y_train.ravel())  # Exclude intercept term
 
-    # Plot training loss and accuracy
-    plt.figure(figsize=(12, 5))
-    plt.subplot(1, 2, 1)
-    plt.plot(losses)
-    plt.xlabel("Epochs")
-    plt.ylabel("Loss")
-    plt.title(f"Training Loss (Learning Rate: {lr})")
+# Store Scikit-Learn test accuracies as a function of epochs for comparison
+test_accuracies_sklearn = []
+for epoch in range(1, n_epochs + 1):
+    clf.max_iter = epoch
+    clf.fit(X_train[:, 1:], y_train.ravel())
+    y_test_pred_sklearn = clf.predict(X_test[:, 1:])
+    test_accuracy_sklearn = accuracy_score(y_test, y_test_pred_sklearn)
+    test_accuracies_sklearn.append(test_accuracy_sklearn)
 
-    plt.subplot(1, 2, 2)
-    plt.plot(accuracies)
-    plt.xlabel("Epochs")
-    plt.ylabel("Training Accuracy")
-    plt.title(f"Training Accuracy (Learning Rate: {lr})")
-
-    plt.tight_layout()
-    plt.show()
-
-# Plot test accuracy vs learning rates
-plt.figure(figsize=(8, 6))
-plt.plot(learning_rates, test_accuracies, marker='o')
-plt.xscale('log')
-plt.xlabel('Learning Rate')
+# Plot the comparison of test accuracies as a function of epochs
+plt.figure(figsize=(10, 6))
+plt.plot(range(n_epochs), test_accuracies_manual, label='Manual Logistic Regression')
+plt.plot(range(n_epochs), test_accuracies_sklearn, label='Scikit-Learn Logistic Regression', linestyle='--')
+plt.xlabel('Epochs')
 plt.ylabel('Test Accuracy')
-plt.title('Test Accuracy vs Learning Rate')
+plt.title('Test Accuracy Comparison of Manual vs. Scikit-Learn Logistic Regression')
+plt.legend()
 plt.grid(True)
 plt.show()
 
-# Compare with Scikit-Learn's Logistic Regression
-from sklearn.linear_model import LogisticRegression
+# Print final test accuracies for comparison
+print(f"Final Test Accuracy (Manual Logistic Regression): {test_accuracies_manual[-1]:.4f}")
+print(f"Final Test Accuracy (Scikit-Learn Logistic Regression): {test_accuracies_sklearn[-1]:.4f}")
 
-clf = LogisticRegression(penalty='l2', C=1/lambda_reg, max_iter=1000)
-clf.fit(X_train[:, 1:], y_train.ravel())  # Exclude intercept term
-y_test_pred_sklearn = clf.predict(X_test[:, 1:])
-test_accuracy_sklearn = accuracy_score(y_test, y_test_pred_sklearn)
-print(f"Scikit-Learn Logistic Regression Test Accuracy: {test_accuracy_sklearn:.4f}")
-
-
+# FFNN Test Accuracy (example value for comparison)
 ffnn_test_accuracy = 0.96
 print(f"FFNN Test Accuracy: {ffnn_test_accuracy:.4f}")
